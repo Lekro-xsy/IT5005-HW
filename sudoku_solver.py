@@ -12,37 +12,24 @@ def atom(prefix, r, c, v):
     return expr(f'{prefix}{r}_{c}_{v}')
 
 
-def _validate_puzzle(n, box_h, box_w, givens):
-    """Validate the structural inputs shared by both encodings."""
-    if not all(isinstance(x, int) and x > 0 for x in (n, box_h, box_w)):
-        raise ValueError('n, box_h, and box_w must be positive integers')
-    if box_h * box_w != n or n % box_h or n % box_w:
-        raise ValueError('box_h x box_w must tile the n x n grid')
-
-    for (r, c), value in givens.items():
-        if not (1 <= r <= n and 1 <= c <= n and 1 <= value <= n):
-            raise ValueError(
-                f'invalid given ({r}, {c}) = {value} for a {n}x{n} grid'
-            )
-
-
 def _peer_map(n, box_h, box_w):
-    """Return every cell's unique row, column, and box peers."""
     peers = {}
     for r in range(1, n + 1):
         for c in range(1, n + 1):
-            cell_peers = {(r, other_c) for other_c in range(1, n + 1)}
-            cell_peers.update((other_r, c) for other_r in range(1, n + 1))
+            p = set()
+            for x in range(1, n + 1):
+                if x != c:
+                    p.add((r, x))
+                if x != r:
+                    p.add((x, c))
 
-            box_r = ((r - 1) // box_h) * box_h + 1
-            box_c = ((c - 1) // box_w) * box_w + 1
-            cell_peers.update(
-                (other_r, other_c)
-                for other_r in range(box_r, box_r + box_h)
-                for other_c in range(box_c, box_c + box_w)
-            )
-            cell_peers.discard((r, c))
-            peers[(r, c)] = tuple(sorted(cell_peers))
+            br = ((r - 1) // box_h) * box_h + 1
+            bc = ((c - 1) // box_w) * box_w + 1
+            for rr in range(br, br + box_h):
+                for cc in range(bc, bc + box_w):
+                    if (rr, cc) != (r, c):
+                        p.add((rr, cc))
+            peers[(r, c)] = tuple(p)
     return peers
 
 
@@ -59,7 +46,6 @@ def build_general_kb(n, box_h, box_w, givens):
     -------
     PropKB
     """
-    _validate_puzzle(n, box_h, box_w, givens)
     kb = PropKB()
     peers = _peer_map(n, box_h, box_w)
 
@@ -67,22 +53,22 @@ def build_general_kb(n, box_h, box_w, givens):
         for c in range(1, n + 1):
             values = [atom('Is', r, c, v) for v in range(1, n + 1)]
             kb.tell(associate('|', values))
-            for first in range(n):
-                for second in range(first + 1, n):
-                    kb.tell(~values[first] | ~values[second])
+            for i in range(n):
+                for j in range(i + 1, n):
+                    kb.tell(~values[i] | ~values[j])
 
     for (r, c), cell_peers in peers.items():
-        for peer_r, peer_c in cell_peers:
-            if (r, c) >= (peer_r, peer_c):
+        for r2, c2 in cell_peers:
+            if (r, c) >= (r2, c2):
                 continue
-            for value in range(1, n + 1):
+            for v in range(1, n + 1):
                 kb.tell(
-                    ~atom('Is', r, c, value)
-                    | ~atom('Is', peer_r, peer_c, value)
+                    ~atom('Is', r, c, v)
+                    | ~atom('Is', r2, c2, v)
                 )
 
-    for (r, c), value in sorted(givens.items()):
-        kb.tell(atom('Is', r, c, value))
+    for (r, c), v in givens.items():
+        kb.tell(atom('Is', r, c, v))
 
     return kb
 
@@ -100,41 +86,40 @@ def build_definite_kb(n, box_h, box_w, givens):
     -------
     PropDefiniteKB
     """
-    _validate_puzzle(n, box_h, box_w, givens)
     kb = PropDefiniteKB()
     peers = _peer_map(n, box_h, box_w)
 
-    for (r, c), value in sorted(givens.items()):
-        kb.tell(atom('Is', r, c, value))
+    for (r, c), v in givens.items():
+        kb.tell(atom('Is', r, c, v))
 
     for r in range(1, n + 1):
         for c in range(1, n + 1):
-            for value in range(1, n + 1):
-                is_value = atom('Is', r, c, value)
+            for v in range(1, n + 1):
+                is_value = atom('Is', r, c, v)
 
-                for other_value in range(1, n + 1):
-                    if other_value != value:
+                for v2 in range(1, n + 1):
+                    if v2 != v:
                         kb.tell(
                             Expr(
                                 '==>',
                                 is_value,
-                                atom('Not', r, c, other_value),
+                                atom('Not', r, c, v2),
                             )
                         )
 
-                for peer_r, peer_c in peers[(r, c)]:
+                for r2, c2 in peers[(r, c)]:
                     kb.tell(
                         Expr(
                             '==>',
                             is_value,
-                            atom('Not', peer_r, peer_c, value),
+                            atom('Not', r2, c2, v),
                         )
                     )
 
                 eliminated = [
-                    atom('Not', r, c, other_value)
-                    for other_value in range(1, n + 1)
-                    if other_value != value
+                    atom('Not', r, c, v2)
+                    for v2 in range(1, n + 1)
+                    if v2 != v
                 ]
                 if eliminated:
                     kb.tell(
@@ -201,9 +186,6 @@ def pl_bc_entails(kb, query, trace=None):
     -------
     bool
     """
-    if not isinstance(kb, PropDefiniteKB):
-        raise TypeError('pl_bc_entails expects a PropDefiniteKB')
-
     clause_count = len(kb.clauses)
     if getattr(kb, '_bc_index_clause_count', None) != clause_count:
         facts = set()
@@ -215,10 +197,8 @@ def pl_bc_entails(kb, query, trace=None):
                     rules_by_conclusion.setdefault(conclusion, []).append(
                         (tuple(premises), clause)
                     )
-                case op if is_prop_symbol(op):
-                    facts.add(clause)
                 case _:
-                    raise ValueError(f'non-definite clause in KB: {clause}')
+                    facts.add(clause)
         kb._bc_facts = facts
         kb._bc_rules_by_conclusion = rules_by_conclusion
         kb._bc_index_clause_count = clause_count

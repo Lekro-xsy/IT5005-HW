@@ -23,7 +23,6 @@ st.set_page_config(
 
 @st.cache_data
 def load_pool():
-    """Load puzzles relative to this file, independent of the launch folder."""
     with Path(__file__).with_name('puzzles.json').open(encoding='utf-8') as file:
         raw = json.load(file)
 
@@ -43,7 +42,6 @@ def load_pool():
 
 
 def render_board(n, box_h, box_w, givens, solved=None, focus=None):
-    """Render an accessible board with distinct given and inferred cells."""
     cells = []
     for r in range(1, n + 1):
         for c in range(1, n + 1):
@@ -86,7 +84,6 @@ def render_board(n, box_h, box_w, givens, solved=None, focus=None):
 
 
 def parse_atom_name(name):
-    """Return (prefix, row, column, value) for an Is/Not symbol."""
     match name:
         case str() if name.startswith('Is'):
             prefix = 'Is'
@@ -100,7 +97,6 @@ def parse_atom_name(name):
 
 
 def explain_trace_step(step, box_h, box_w):
-    """Translate a proof event into a concise natural-language explanation."""
     kind = step['kind']
     conclusion = step['conclusion']
     prefix, r, c, value = parse_atom_name(conclusion)
