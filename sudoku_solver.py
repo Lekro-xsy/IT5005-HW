@@ -27,40 +27,42 @@ def build_general_kb(n, box_h, box_w, givens):
     PropKB
     """
     kb = PropKB()
-    peers = {}
-    for r in range(1, n + 1):
-        for c in range(1, n + 1):
-            p = set()
-            for x in range(1, n + 1):
-                if x != c:
-                    p.add((r, x))
-                if x != r:
-                    p.add((x, c))
-            br = ((r - 1) // box_h) * box_h + 1
-            bc = ((c - 1) // box_w) * box_w + 1
-            for rr in range(br, br + box_h):
-                for cc in range(bc, bc + box_w):
-                    if (rr, cc) != (r, c):
-                        p.add((rr, cc))
-            peers[(r, c)] = p
 
     for r in range(1, n + 1):
         for c in range(1, n + 1):
-            values = [atom('Is', r, c, v) for v in range(1, n + 1)]
-            kb.tell(associate('|', values))
-            for i in range(n):
-                for j in range(i + 1, n):
-                    kb.tell(~values[i] | ~values[j])
-
-    for (r, c), cell_peers in peers.items():
-        for r2, c2 in cell_peers:
-            if (r, c) >= (r2, c2):
-                continue
+            choices = []
             for v in range(1, n + 1):
-                kb.tell(
-                    ~atom('Is', r, c, v)
-                    | ~atom('Is', r2, c2, v)
-                )
+                choices.append(atom('Is', r, c, v))
+            kb.tell(associate('|', choices))
+
+            for v1 in range(1, n + 1):
+                for v2 in range(v1 + 1, n + 1):
+                    kb.tell(~atom('Is', r, c, v1) | ~atom('Is', r, c, v2))
+
+    for r in range(1, n + 1):
+        for v in range(1, n + 1):
+            for c1 in range(1, n + 1):
+                for c2 in range(c1 + 1, n + 1):
+                    kb.tell(~atom('Is', r, c1, v) | ~atom('Is', r, c2, v))
+
+    for c in range(1, n + 1):
+        for v in range(1, n + 1):
+            for r1 in range(1, n + 1):
+                for r2 in range(r1 + 1, n + 1):
+                    kb.tell(~atom('Is', r1, c, v) | ~atom('Is', r2, c, v))
+
+    for first_r in range(1, n + 1, box_h):
+        for first_c in range(1, n + 1, box_w):
+            cells = []
+            for r in range(first_r, first_r + box_h):
+                for c in range(first_c, first_c + box_w):
+                    cells.append((r, c))
+            for v in range(1, n + 1):
+                for i in range(len(cells)):
+                    for j in range(i + 1, len(cells)):
+                        r1, c1 = cells[i]
+                        r2, c2 = cells[j]
+                        kb.tell(~atom('Is', r1, c1, v) | ~atom('Is', r2, c2, v))
 
     for (r, c), v in givens.items():
         kb.tell(atom('Is', r, c, v))
@@ -82,22 +84,6 @@ def build_definite_kb(n, box_h, box_w, givens):
     PropDefiniteKB
     """
     kb = PropDefiniteKB()
-    peers = {}
-    for r in range(1, n + 1):
-        for c in range(1, n + 1):
-            p = set()
-            for x in range(1, n + 1):
-                if x != c:
-                    p.add((r, x))
-                if x != r:
-                    p.add((x, c))
-            br = ((r - 1) // box_h) * box_h + 1
-            bc = ((c - 1) // box_w) * box_w + 1
-            for rr in range(br, br + box_h):
-                for cc in range(bc, bc + box_w):
-                    if (rr, cc) != (r, c):
-                        p.add((rr, cc))
-            peers[(r, c)] = p
 
     for (r, c), v in givens.items():
         kb.tell(atom('Is', r, c, v))
@@ -105,53 +91,49 @@ def build_definite_kb(n, box_h, box_w, givens):
     for r in range(1, n + 1):
         for c in range(1, n + 1):
             for v in range(1, n + 1):
-                is_value = atom('Is', r, c, v)
+                for other in range(1, n + 1):
+                    if other != v:
+                        kb.tell(Expr('==>', atom('Is', r, c, v),
+                                     atom('Not', r, c, other)))
 
-                for v2 in range(1, n + 1):
-                    if v2 != v:
-                        kb.tell(
-                            Expr(
-                                '==>',
-                                is_value,
-                                atom('Not', r, c, v2),
-                            )
-                        )
+    for r in range(1, n + 1):
+        for v in range(1, n + 1):
+            for c1 in range(1, n + 1):
+                for c2 in range(1, n + 1):
+                    if c1 != c2:
+                        kb.tell(Expr('==>', atom('Is', r, c1, v),
+                                     atom('Not', r, c2, v)))
 
-                for r2, c2 in peers[(r, c)]:
-                    kb.tell(
-                        Expr(
-                            '==>',
-                            is_value,
-                            atom('Not', r2, c2, v),
-                        )
-                    )
+    for c in range(1, n + 1):
+        for v in range(1, n + 1):
+            for r1 in range(1, n + 1):
+                for r2 in range(1, n + 1):
+                    if r1 != r2:
+                        kb.tell(Expr('==>', atom('Is', r1, c, v),
+                                     atom('Not', r2, c, v)))
 
-                eliminated = [
-                    atom('Not', r, c, v2)
-                    for v2 in range(1, n + 1)
-                    if v2 != v
-                ]
-                if eliminated:
-                    kb.tell(
-                        Expr(
-                            '==>',
-                            associate('&', eliminated),
-                            is_value,
-                        )
-                    )
-                else:
-                    kb.tell(is_value)
+    for first_r in range(1, n + 1, box_h):
+        for first_c in range(1, n + 1, box_w):
+            cells = []
+            for r in range(first_r, first_r + box_h):
+                for c in range(first_c, first_c + box_w):
+                    cells.append((r, c))
+            for v in range(1, n + 1):
+                for r1, c1 in cells:
+                    for r2, c2 in cells:
+                        if (r1, c1) != (r2, c2):
+                            kb.tell(Expr('==>', atom('Is', r1, c1, v),
+                                         atom('Not', r2, c2, v)))
 
-    premise_index = {}
-    for clause in kb.clauses:
-        if clause.op == '==>':
-            premises, _ = parse_definite_clause(clause)
-            for premise in premises:
-                premise_index.setdefault(premise, []).append(clause)
-    kb._clauses_by_premise = premise_index
-    kb.clauses_with_premise = (
-        lambda premise, index=premise_index: index.get(premise, ())
-    )
+    for r in range(1, n + 1):
+        for c in range(1, n + 1):
+            for v in range(1, n + 1):
+                other_values = []
+                for other in range(1, n + 1):
+                    if other != v:
+                        other_values.append(atom('Not', r, c, other))
+                kb.tell(Expr('==>', associate('&', other_values),
+                             atom('Is', r, c, v)))
 
     return kb
 
@@ -164,24 +146,35 @@ def solve_full_grid_fc(n, box_h, box_w, givens):
     dict[(int, int), int] -- {(row, col): value} for every cell
     """
     kb = build_definite_kb(n, box_h, box_w, givens)
-    solved = {}
+    answer = {}
+
+    lookup = {}
+    for clause in kb.clauses:
+        if clause.op == '==>':
+            premises, conclusion = parse_definite_clause(clause)
+            for premise in premises:
+                if premise not in lookup:
+                    lookup[premise] = []
+                lookup[premise].append(clause)
+
+    def find_rules(premise):
+        return lookup.get(premise, [])
+
+    kb.clauses_with_premise = find_rules
 
     for r in range(1, n + 1):
         for c in range(1, n + 1):
             if (r, c) in givens:
-                solved[(r, c)] = givens[(r, c)]
+                answer[(r, c)] = givens[(r, c)]
                 continue
-
-            for value in range(1, n + 1):
-                if pl_fc_entails(kb, atom('Is', r, c, value)):
-                    solved[(r, c)] = value
+            for v in range(1, n + 1):
+                if pl_fc_entails(kb, atom('Is', r, c, v)):
+                    answer[(r, c)] = v
                     break
-            else:
-                raise ValueError(
-                    f'forward chaining could not solve cell ({r}, {c})'
-                )
+            if (r, c) not in answer:
+                raise ValueError('Could not solve cell ' + str((r, c)))
 
-    return solved
+    return answer
 
 
 def pl_bc_entails(kb, query):
@@ -196,84 +189,60 @@ def pl_bc_entails(kb, query):
     -------
     bool
     """
-    clause_count = len(kb.clauses)
-    if getattr(kb, '_bc_index_clause_count', None) != clause_count:
+    if not hasattr(kb, '_bc_rules'):
         facts = set()
-        rules_by_conclusion = {}
+        rules = {}
+
         for clause in kb.clauses:
             match clause.op:
                 case '==>':
                     premises, conclusion = parse_definite_clause(clause)
-                    rules_by_conclusion.setdefault(conclusion, []).append(
-                        (tuple(premises), clause)
-                    )
+                    if conclusion not in rules:
+                        rules[conclusion] = []
+                    rules[conclusion].append((premises, clause))
                 case _:
                     facts.add(clause)
+
+        kb._bc_rules = rules
         kb._bc_facts = facts
-        kb._bc_rules_by_conclusion = rules_by_conclusion
-        kb._bc_index_clause_count = clause_count
-        kb._bc_proven = set(facts)
+        kb._bc_known = set(facts)
         kb._bc_proof = {}
 
-    facts = kb._bc_facts
-    rules_by_conclusion = kb._bc_rules_by_conclusion
-    known = kb._bc_proven
-    proof = kb._bc_proof
+    goals = set()
+    useful_rules = []
+    todo = [query]
 
-    relevant_goals = set()
-    relevant_rules = []
+    while todo:
+        goal = todo.pop()
+        if goal in goals:
+            continue
+        goals.add(goal)
 
-    pending = [query]
-    while pending:
-        goal = pending.pop()
-        if goal in relevant_goals:
-            continue
-        relevant_goals.add(goal)
-        if goal in known:
-            continue
-        for premises, clause in rules_by_conclusion.get(goal, ()):
-            relevant_rules.append((premises, goal, clause))
+        for premises, clause in kb._bc_rules.get(goal, []):
+            useful_rules.append((premises, goal, clause))
             for premise in premises:
-                if premise not in relevant_goals:
-                    pending.append(premise)
+                if premise not in goals:
+                    todo.append(premise)
 
-    entailed_goals = {goal for goal in relevant_goals if goal in known}
-    agenda = list(entailed_goals)
-    remaining = {}
-    rules_with_premise = {}
-
-    for rule_id, (premises, _, _) in enumerate(relevant_rules):
-        missing = [premise for premise in premises if premise not in entailed_goals]
-        remaining[rule_id] = len(missing)
-        for premise in missing:
-            rules_with_premise.setdefault(premise, []).append(rule_id)
-
-    for rule_id, count in remaining.items():
-        if count != 0:
-            continue
-        premises, conclusion, clause = relevant_rules[rule_id]
-        if conclusion not in entailed_goals:
-            entailed_goals.add(conclusion)
-            agenda.append(conclusion)
-            proof[conclusion] = (premises, clause)
-
-    while agenda:
-        established = agenda.pop()
-        for rule_id in rules_with_premise.get(established, ()):
-            if remaining[rule_id] == 0:
+    changed = True
+    while changed and query not in kb._bc_known:
+        changed = False
+        for premises, conclusion, clause in useful_rules:
+            if conclusion in kb._bc_known:
                 continue
-            remaining[rule_id] -= 1
-            if remaining[rule_id] == 0:
-                premises, conclusion, clause = relevant_rules[rule_id]
-                if conclusion not in entailed_goals:
-                    entailed_goals.add(conclusion)
-                    agenda.append(conclusion)
-                    proof[conclusion] = (premises, clause)
 
-    known.update(entailed_goals)
-    entailed = query in entailed_goals
+            proved = True
+            for premise in premises:
+                if premise not in kb._bc_known:
+                    proved = False
+                    break
 
-    return entailed
+            if proved:
+                kb._bc_known.add(conclusion)
+                kb._bc_proof[conclusion] = (premises, clause)
+                changed = True
+
+    return query in kb._bc_known
 
 
 def solve_full_grid_bc(n, box_h, box_w, givens):
@@ -288,21 +257,18 @@ def solve_full_grid_bc(n, box_h, box_w, givens):
     dict[(int, int), int] -- {(row, col): value} for every cell
     """
     kb = build_definite_kb(n, box_h, box_w, givens)
-    solved = {}
+    answer = {}
 
     for r in range(1, n + 1):
         for c in range(1, n + 1):
             if (r, c) in givens:
-                solved[(r, c)] = givens[(r, c)]
+                answer[(r, c)] = givens[(r, c)]
                 continue
-
-            for value in range(1, n + 1):
-                if pl_bc_entails(kb, atom('Is', r, c, value)):
-                    solved[(r, c)] = value
+            for v in range(1, n + 1):
+                if pl_bc_entails(kb, atom('Is', r, c, v)):
+                    answer[(r, c)] = v
                     break
-            else:
-                raise ValueError(
-                    f'backward chaining could not solve cell ({r}, {c})'
-                )
+            if (r, c) not in answer:
+                raise ValueError('Could not solve cell ' + str((r, c)))
 
-    return solved
+    return answer
