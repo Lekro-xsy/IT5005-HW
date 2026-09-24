@@ -7,7 +7,6 @@ from utils import *
 from logic_ import *
 
 
-# Do not change this function; it is used to create atomic propositions.
 def atom(prefix, r, c, v):
     """prefix is 'Is' or 'Not'. Returns the Expr for e.g. Is3_2_4."""
     return expr(f'{prefix}{r}_{c}_{v}')
@@ -64,7 +63,6 @@ def build_general_kb(n, box_h, box_w, givens):
     kb = PropKB()
     peers = _peer_map(n, box_h, box_w)
 
-    # Every cell has at least one value, and never two different values.
     for r in range(1, n + 1):
         for c in range(1, n + 1):
             values = [atom('Is', r, c, v) for v in range(1, n + 1)]
@@ -73,8 +71,6 @@ def build_general_kb(n, box_h, box_w, givens):
                 for second in range(first + 1, n):
                     kb.tell(~values[first] | ~values[second])
 
-    # A value cannot appear in two peer cells.  Using the unique peer map
-    # avoids duplicating row/column constraints that also lie in one box.
     for (r, c), cell_peers in peers.items():
         for peer_r, peer_c in cell_peers:
             if (r, c) >= (peer_r, peer_c):
@@ -108,7 +104,6 @@ def build_definite_kb(n, box_h, box_w, givens):
     kb = PropDefiniteKB()
     peers = _peer_map(n, box_h, box_w)
 
-    # Givens are the initial positive facts.
     for (r, c), value in sorted(givens.items()):
         kb.tell(atom('Is', r, c, value))
 
@@ -117,7 +112,6 @@ def build_definite_kb(n, box_h, box_w, givens):
             for value in range(1, n + 1):
                 is_value = atom('Is', r, c, value)
 
-                # A known value eliminates every other value in that cell.
                 for other_value in range(1, n + 1):
                     if other_value != value:
                         kb.tell(
@@ -128,7 +122,6 @@ def build_definite_kb(n, box_h, box_w, givens):
                             )
                         )
 
-                # A known value eliminates itself from all peer cells.
                 for peer_r, peer_c in peers[(r, c)]:
                     kb.tell(
                         Expr(
@@ -138,9 +131,6 @@ def build_definite_kb(n, box_h, box_w, givens):
                         )
                     )
 
-                # Horn clauses cannot express an at-least-one disjunction.
-                # Instead, infer the last remaining candidate after all other
-                # candidates for this cell have been eliminated.
                 eliminated = [
                     atom('Not', r, c, other_value)
                     for other_value in range(1, n + 1)
@@ -157,9 +147,6 @@ def build_definite_kb(n, box_h, box_w, givens):
                 else:
                     kb.tell(is_value)
 
-    # The supplied clauses_with_premise implementation scans every clause on
-    # every agenda step.  Keep the class untouched, but attach a per-KB index
-    # so the supplied pl_fc_entails remains practical on this large KB.
     premise_index = {}
     for clause in kb.clauses:
         if clause.op == '==>':
@@ -217,22 +204,21 @@ def pl_bc_entails(kb, query, trace=None):
     if not isinstance(kb, PropDefiniteKB):
         raise TypeError('pl_bc_entails expects a PropDefiniteKB')
 
-    # Index once per immutable KB.  solve_full_grid_bc asks many queries of
-    # the same KB, so rebuilding this index for every candidate is wasteful.
     clause_count = len(kb.clauses)
     if getattr(kb, '_bc_index_clause_count', None) != clause_count:
         facts = set()
         rules_by_conclusion = {}
         for clause in kb.clauses:
-            if is_prop_symbol(clause.op):
-                facts.add(clause)
-            elif clause.op == '==>':
-                premises, conclusion = parse_definite_clause(clause)
-                rules_by_conclusion.setdefault(conclusion, []).append(
-                    (tuple(premises), clause)
-                )
-            else:
-                raise ValueError(f'non-definite clause in KB: {clause}')
+            match clause.op:
+                case '==>':
+                    premises, conclusion = parse_definite_clause(clause)
+                    rules_by_conclusion.setdefault(conclusion, []).append(
+                        (tuple(premises), clause)
+                    )
+                case op if is_prop_symbol(op):
+                    facts.add(clause)
+                case _:
+                    raise ValueError(f'non-definite clause in KB: {clause}')
         kb._bc_facts = facts
         kb._bc_rules_by_conclusion = rules_by_conclusion
         kb._bc_index_clause_count = clause_count
@@ -241,15 +227,9 @@ def pl_bc_entails(kb, query, trace=None):
 
     facts = kb._bc_facts
     rules_by_conclusion = kb._bc_rules_by_conclusion
-    # Successful proofs are query-independent, so reuse them when the full
-    # grid solver asks hundreds of queries of the same KB.
     known = kb._bc_proven
     proof = kb._bc_proof
 
-    # Backward phase: build only the AND/OR dependency graph that can
-    # contribute to this query.  ``pending`` is an explicit recursion stack;
-    # using it instead of Python's call stack lets a large cyclic Sudoku graph
-    # exceed 1,000 nested dependencies without raising RecursionError.
     relevant_goals = set()
     relevant_rules = []
 
@@ -267,10 +247,6 @@ def pl_bc_entails(kb, query, trace=None):
                 if premise not in relevant_goals:
                     pending.append(premise)
 
-    # Tabled evaluation of the selected dependency graph.  A rule succeeds
-    # only after all of its premises (AND) are established; any successful
-    # rule for a conclusion is enough (OR).  This least-fixpoint step handles
-    # cycles without mistaking circular support for a proof.
     entailed_goals = {goal for goal in relevant_goals if goal in known}
     agenda = list(entailed_goals)
     remaining = {}

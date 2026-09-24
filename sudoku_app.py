@@ -87,11 +87,16 @@ def render_board(n, box_h, box_w, givens, solved=None, focus=None):
 
 def parse_atom_name(name):
     """Return (prefix, row, column, value) for an Is/Not symbol."""
-    for prefix in ('Is', 'Not'):
-        if name.startswith(prefix):
-            r, c, value = (int(part) for part in name[len(prefix):].split('_'))
-            return prefix, r, c, value
-    raise ValueError(f'Unrecognised atom: {name}')
+    match name:
+        case str() if name.startswith('Is'):
+            prefix = 'Is'
+        case str() if name.startswith('Not'):
+            prefix = 'Not'
+        case _:
+            raise ValueError(f'Unrecognised atom: {name}')
+
+    r, c, value = (int(part) for part in name[len(prefix):].split('_'))
+    return prefix, r, c, value
 
 
 def explain_trace_step(step, box_h, box_w):
@@ -100,13 +105,18 @@ def explain_trace_step(step, box_h, box_w):
     conclusion = step['conclusion']
     prefix, r, c, value = parse_atom_name(conclusion)
 
-    if kind == 'fact':
-        return f'Given: cell ({r}, {c}) contains {value}.'
-    if kind == 'failure':
-        return (
-            f'No rule chain from the givens proves that cell ({r}, {c}) '
-            f'contains {value}.'
-        )
+    match kind:
+        case 'fact':
+            return f'Given: cell ({r}, {c}) contains {value}.'
+        case 'failure':
+            return (
+                f'No rule chain from the givens proves that cell ({r}, {c}) '
+                f'contains {value}.'
+            )
+        case 'rule':
+            pass
+        case _:
+            raise ValueError(f'Unrecognised trace event: {kind}')
 
     premises = [parse_atom_name(name) for name in step['premises']]
     if prefix == 'Not' and len(premises) == 1 and premises[0][0] == 'Is':
@@ -242,11 +252,11 @@ with solve_column:
         'using the selected inference procedure.'
     )
     if st.button('Solve full grid', type='primary', use_container_width=True):
-        solver = (
-            solve_full_grid_fc
-            if algorithm == 'Forward chaining'
-            else solve_full_grid_bc
-        )
+        match algorithm:
+            case 'Forward chaining':
+                solver = solve_full_grid_fc
+            case 'Backward chaining':
+                solver = solve_full_grid_bc
         with st.spinner(f'Running {algorithm.lower()}...'):
             started = time.perf_counter()
             try:
