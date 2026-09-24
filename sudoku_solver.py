@@ -7,30 +7,10 @@ from utils import *
 from logic_ import *
 
 
+# Do not change this function; it is used to create atomic propositions.
 def atom(prefix, r, c, v):
     """prefix is 'Is' or 'Not'. Returns the Expr for e.g. Is3_2_4."""
     return expr(f'{prefix}{r}_{c}_{v}')
-
-
-def _peer_map(n, box_h, box_w):
-    peers = {}
-    for r in range(1, n + 1):
-        for c in range(1, n + 1):
-            p = set()
-            for x in range(1, n + 1):
-                if x != c:
-                    p.add((r, x))
-                if x != r:
-                    p.add((x, c))
-
-            br = ((r - 1) // box_h) * box_h + 1
-            bc = ((c - 1) // box_w) * box_w + 1
-            for rr in range(br, br + box_h):
-                for cc in range(bc, bc + box_w):
-                    if (rr, cc) != (r, c):
-                        p.add((rr, cc))
-            peers[(r, c)] = tuple(p)
-    return peers
 
 
 def build_general_kb(n, box_h, box_w, givens):
@@ -47,7 +27,22 @@ def build_general_kb(n, box_h, box_w, givens):
     PropKB
     """
     kb = PropKB()
-    peers = _peer_map(n, box_h, box_w)
+    peers = {}
+    for r in range(1, n + 1):
+        for c in range(1, n + 1):
+            p = set()
+            for x in range(1, n + 1):
+                if x != c:
+                    p.add((r, x))
+                if x != r:
+                    p.add((x, c))
+            br = ((r - 1) // box_h) * box_h + 1
+            bc = ((c - 1) // box_w) * box_w + 1
+            for rr in range(br, br + box_h):
+                for cc in range(bc, bc + box_w):
+                    if (rr, cc) != (r, c):
+                        p.add((rr, cc))
+            peers[(r, c)] = p
 
     for r in range(1, n + 1):
         for c in range(1, n + 1):
@@ -87,7 +82,22 @@ def build_definite_kb(n, box_h, box_w, givens):
     PropDefiniteKB
     """
     kb = PropDefiniteKB()
-    peers = _peer_map(n, box_h, box_w)
+    peers = {}
+    for r in range(1, n + 1):
+        for c in range(1, n + 1):
+            p = set()
+            for x in range(1, n + 1):
+                if x != c:
+                    p.add((r, x))
+                if x != r:
+                    p.add((x, c))
+            br = ((r - 1) // box_h) * box_h + 1
+            bc = ((c - 1) // box_w) * box_w + 1
+            for rr in range(br, br + box_h):
+                for cc in range(bc, bc + box_w):
+                    if (rr, cc) != (r, c):
+                        p.add((rr, cc))
+            peers[(r, c)] = p
 
     for (r, c), v in givens.items():
         kb.tell(atom('Is', r, c, v))
@@ -174,7 +184,7 @@ def solve_full_grid_fc(n, box_h, box_w, givens):
     return solved
 
 
-def pl_bc_entails(kb, query, trace=None):
+def pl_bc_entails(kb, query):
     """Your own backward-chaining implementation.
 
     Parameters
@@ -262,45 +272,6 @@ def pl_bc_entails(kb, query, trace=None):
 
     known.update(entailed_goals)
     entailed = query in entailed_goals
-
-    if trace is not None:
-        trace.clear()
-        if entailed:
-            emitted = set()
-
-            def emit(goal):
-                if goal in emitted:
-                    return
-                if goal in facts:
-                    trace.append(
-                        {
-                            'kind': 'fact',
-                            'conclusion': str(goal),
-                            'premises': [],
-                        }
-                    )
-                else:
-                    premises, _ = proof[goal]
-                    for premise in premises:
-                        emit(premise)
-                    trace.append(
-                        {
-                            'kind': 'rule',
-                            'conclusion': str(goal),
-                            'premises': [str(premise) for premise in premises],
-                        }
-                    )
-                emitted.add(goal)
-
-            emit(query)
-        else:
-            trace.append(
-                {
-                    'kind': 'failure',
-                    'conclusion': str(query),
-                    'premises': [],
-                }
-            )
 
     return entailed
 

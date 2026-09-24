@@ -1,9 +1,8 @@
 import json
 import time
-from pathlib import Path
-
 import streamlit as st
-
+from utils import *
+from logic_ import *
 from sudoku_solver import (
     atom,
     build_definite_kb,
@@ -13,32 +12,10 @@ from sudoku_solver import (
     pl_bc_entails,
 )
 
+st.title('Sudoku Solver')
 
-st.set_page_config(
-    page_title='Logic Sudoku Lab',
-    page_icon='🧩',
-    layout='wide',
-)
-
-
-@st.cache_data
-def load_pool():
-    with Path(__file__).with_name('puzzles.json').open(encoding='utf-8') as file:
-        raw = json.load(file)
-
-    puzzles = []
-    for puzzle in raw['puzzles']:
-        givens = {
-            tuple(int(part) for part in key.split('_')): value
-            for key, value in puzzle['givens'].items()
-        }
-        puzzles.append(
-            {
-                'givens': givens,
-                'given_count': puzzle['given_count'],
-            }
-        )
-    return raw['n'], raw['box_h'], raw['box_w'], puzzles
+with open('puzzles.json') as f:
+    pool = json.load(f)
 
 
 def render_board(n, box_h, box_w, givens, solved=None, focus=None):
@@ -149,20 +126,39 @@ def explain_trace_step(step, box_h, box_w):
     return f'From {readable}, infer {conclusion}.'
 
 
+def build_trace(kb, query, entailed):
+    if not entailed:
+        return [{'kind': 'failure', 'conclusion': str(query), 'premises': []}]
+
+    trace = []
+    emitted = set()
+
+    def add_step(goal):
+        if goal in emitted:
+            return
+        if goal in kb._bc_facts:
+            trace.append({'kind': 'fact', 'conclusion': str(goal), 'premises': []})
+        else:
+            premises, unused_rule = kb._bc_proof[goal]
+            for premise in premises:
+                add_step(premise)
+            trace.append(
+                {
+                    'kind': 'rule',
+                    'conclusion': str(goal),
+                    'premises': [str(premise) for premise in premises],
+                }
+            )
+        emitted.add(goal)
+
+    add_step(query)
+    return trace
+
+
 st.markdown(
     """
     <style>
     .stApp { background: #f7f8fb; }
-    .hero {
-        padding: 1.2rem 1.4rem;
-        border-radius: 18px;
-        background: linear-gradient(120deg, #172554, #1d4ed8);
-        color: white;
-        margin-bottom: 1.2rem;
-        box-shadow: 0 12px 30px rgba(30, 64, 175, .18);
-    }
-    .hero h1 { margin: 0; font-size: 2rem; }
-    .hero p { margin: .35rem 0 0; color: #dbeafe; }
     .sudoku-grid {
         display: grid;
         width: fit-content;
@@ -192,15 +188,20 @@ st.markdown(
         .sudoku-cell { width: 38px; height: 38px; font-size: 1rem; }
     }
     </style>
-    <div class="hero">
-      <h1>Logic Sudoku Lab</h1>
-      <p>Knowledge representation, forward chaining, and goal-directed inference.</p>
-    </div>
     """,
     unsafe_allow_html=True,
 )
 
-n, box_h, box_w, puzzle_pool = load_pool()
+n = pool['n']
+box_h = pool['box_h']
+box_w = pool['box_w']
+puzzle_pool = []
+for item in pool['puzzles']:
+    givens = {
+        tuple(int(part) for part in key.split('_')): value
+        for key, value in item['givens'].items()
+    }
+    puzzle_pool.append({'givens': givens, 'given_count': item['given_count']})
 
 with st.sidebar:
     st.header('Puzzle controls')
@@ -296,14 +297,11 @@ with query_button:
     run_query = st.button('Run query', use_container_width=True)
 
 if run_query:
-    trace = []
     started = time.perf_counter()
     kb = build_definite_kb(n, box_h, box_w, givens)
-    verdict = pl_bc_entails(
-        kb,
-        atom('Is', int(row), int(column), int(value)),
-        trace=trace,
-    )
+    query = atom('Is', int(row), int(column), int(value))
+    verdict = pl_bc_entails(kb, query)
+    trace = build_trace(kb, query, verdict)
     elapsed = time.perf_counter() - started
     st.session_state.query_result = {
         'puzzle': selected_index,
